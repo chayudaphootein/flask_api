@@ -1,56 +1,56 @@
-name: Build and deploy Python app to Azure Web App
+name: .NET Azure Deployment
 
-env:
-  AZURE_WEBAPP_NAME: 'Aoom-devsecops'   # set this to your application's name
-  PYTHON_VERSION: '3.9'               
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-20.04
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v2
 
-      - name: Set up Python version
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '6.0.x'  # Specify your .NET version here
 
-      - name: Create and start virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+    - name: Restore dependencies
+      run: dotnet restore
 
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: flask-api
-          path: |
-            .
-            !venv/
-  deploy:
-    runs-on: ubuntu-20.04
-    needs: build
-    environment:
-      name: 'production'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: flask-api
-          path: .
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+    - name: Publish
+      run: dotnet publish -c Release -o ./publish
+
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}  # Set this environment variable in your GitHub repo settings
+        slot-name: 'production'  # Optional: Add if deploying to a specific slot
+        publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE }}  # Set this secret in your GitHub repo settings
+        package: ./publish
+
+    - name: Cleanup after build
+      if: always()
+      run: rm -rf ./publish
+
+    - name: Analyze with CodeQL  # Optional: Add CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: 'csharp'  # Specify languages here
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
